@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"reflect"
 	"regexp"
+    "os"
 
 	"github.com/shirou/gopsutil/mem"
 )
@@ -72,7 +73,12 @@ func strToUint64(s string) uint64 {
 }
 
 func fakeDial(proto, addr string) (conn net.Conn, err error) {
-	return net.Dial("unix", "/var/lib/lxd/unix.socket")
+	_, ferr := os.Stat("/var/snap/lxd/common/lxd/unix.socket")
+	if  ferr == nil {
+		return net.Dial("unix", "/var/snap/lxd/common/lxd/unix.socket")
+	} else {
+		return net.Dial("unix", "/var/lib/lxd/unix.socket")
+	}	
 }
 
 func sendHttpReq(path string) []byte {
@@ -144,12 +150,16 @@ func getLxdInterfaceCounters(lxd string, channel chan<- HttpTaskResult) {
 		}
 		stats[iface]["rx"] = uint64(value.(map[string]interface{})["counters"].(map[string]interface{})["bytes_received"].(float64))
 		stats[iface]["tx"] = uint64(value.(map[string]interface{})["counters"].(map[string]interface{})["bytes_sent"].(float64))
+		stats[iface]["prx"] = uint64(value.(map[string]interface{})["counters"].(map[string]interface{})["packets_received"].(float64))
+		stats[iface]["ptx"] = uint64(value.(map[string]interface{})["counters"].(map[string]interface{})["packets_sent"].(float64))
 	}
 
 	output := make(map[string]uint64)
 	for _, value := range stats {
 		output["tx"] += value["tx"]
 		output["rx"] += value["rx"]
+		output["ptx"] += value["tx"]
+		output["prx"] += value["rx"]
 	}
 
 	httpTaskResult.stats = output
@@ -171,61 +181,77 @@ func readCgroupFile(task CgroupTask, channel chan<- CgroupTaskResult) {
 
 func genCgroupTaskList(lxdList []string) []CgroupTask {
 	tasks := make([]CgroupTask, 0)
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "blkio.throttle.io_serviced"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/blkio/lxc/%s/blkio.throttle.io_serviced", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "blkio.throttle.io_service_bytes"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/blkio/lxc/%s/blkio.throttle.io_service_bytes", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "memory.usage_in_bytes"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/lxc/%s/memory.usage_in_bytes", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "memory.limit_in_bytes"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/lxc/%s/memory.limit_in_bytes", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "memory.memsw.usage_in_bytes"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/lxc/%s/memory.memsw.usage_in_bytes", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "memory.memsw.limit_in_bytes"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/lxc/%s/memory.memsw.limit_in_bytes", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "cpuacct.usage"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/cpu,cpuacct/lxc/%s/cpuacct.usage", lxd)
-		tasks = append(tasks, t)
-	}
-	for _, lxd := range lxdList {
-		var t CgroupTask
-		t.cgroupItem = "cpuset.cpus"
-		t.lxcName = lxd
-		t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/cpuset/lxc/%s/cpuset.cpus", lxd)
-		tasks = append(tasks, t)
+	for _, lxc_dir := range [...]string{"lxc", "lxc.monitoring", "lxc.payload"} {
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "blkio.throttle.io_serviced"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/blkio/%s/%s/blkio.throttle.io_serviced", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "blkio.throttle.io_service_bytes"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/blkio/%s/%s/blkio.throttle.io_service_bytes", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "memory.usage_in_bytes"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/%s/%s/memory.usage_in_bytes", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "memory.limit_in_bytes"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/%s/%s/memory.limit_in_bytes", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "memory.memsw.usage_in_bytes"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/%s/%s/memory.memsw.usage_in_bytes", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "memory.memsw.limit_in_bytes"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/memory/%s/%s/memory.memsw.limit_in_bytes", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "cpuacct.usage"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/cpu,cpuacct/%s/%s/cpuacct.usage", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "cpuacct.usage"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/cpu,cpuacct/%s/%s/cpuacct.usage", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "cpuacct.usage"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/cpu,cpuacct/%s/%s/cpuacct.usage", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
+		for _, lxd := range lxdList {
+			var t CgroupTask
+			t.cgroupItem = "cpuset.cpus"
+			t.lxcName = lxd
+			t.cgroupPath = fmt.Sprintf("/sys/fs/cgroup/cpuset/%s/%s/cpuset.cpus", lxc_dir, lxd)
+			tasks = append(tasks, t)
+		}
 	}
 	return tasks
 }
@@ -474,6 +500,8 @@ func gatherApiData(lxdList []string, lxcData map[string]map[string]interface{}) 
 			/* tx and rx are reversed from the host vs container */
 			lxcData[result.lxdName]["bytes_sent"] = result.stats["rx"]
 			lxcData[result.lxdName]["bytes_recv"] = result.stats["tx"]
+			lxcData[result.lxdName]["packets_sent"] = result.stats["prx"]
+			lxcData[result.lxdName]["packets_recv"] = result.stats["ptx"]
 		}
 	}	
 }

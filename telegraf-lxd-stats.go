@@ -181,7 +181,7 @@ func readCgroupFile(task CgroupTask, channel chan<- CgroupTaskResult) {
 
 func genCgroupTaskList(lxdList []string) []CgroupTask {
 	tasks := make([]CgroupTask, 0)
-	for _, lxc_dir := range [...]string{"lxc", "lxc.monitoring", "lxc.payload"} {
+	for _, lxc_dir := range [...]string{"lxc", "lxc.monitor", "lxc.payload"} {
 		for _, lxd := range lxdList {
 			var t CgroupTask
 			t.cgroupItem = "blkio.throttle.io_serviced"
